@@ -1,87 +1,49 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+"""Botning barcha inline klaviaturalari (tugmalari) shu yerda joylashgan."""
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-
-# ---------- Admin asosiy menyu ----------
-
-def admin_menu_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="➕ Video qo'shish", callback_data="adm_add_video")
-    kb.button(text="🎬 Videolarni boshqarish", callback_data="adm_manage_videos")
-    kb.button(text="📁 Kategoriyalar", callback_data="adm_manage_categories")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
-def back_to_admin_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Admin menyuga qaytish", callback_data="adm_menu")
-    return kb.as_markup()
+MAIN_MENU_BUTTONS: list[tuple[str, str]] = [
+    ("🎭 Joriy spektakllar", "menu:spectacles"),
+    ("📅 Haftalik jadval", "menu:schedule"),
+    ("🎫 Teatr a'zosi bo'lish", "menu:membership"),
+    ("🎨 Aktyorlar profili", "menu:actors"),
+    ("📸 Foto/video galereya", "menu:gallery"),
+    ("🏆 Teatr tarixi va yutuqlari", "menu:history"),
+    ("🧳 Sayohatlar / ekskursiyalar", "menu:trips"),
+    ("📢 Yangiliklar va e'lonlar", "menu:news"),
+    ("❓ Ko'p so'raladigan savollar", "menu:faq"),
+    ("📞 Bog'lanish", "menu:contact"),
+]
 
 
-def cancel_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="❌ Bekor qilish", callback_data="adm_cancel")
-    return kb.as_markup()
+def main_menu_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for text, data in MAIN_MENU_BUTTONS:
+        builder.row(InlineKeyboardButton(text=text, callback_data=data))
+    return builder.as_markup()
 
 
-# ---------- Kategoriyalar ----------
-
-def categories_kb(categories, prefix: str, show_add: bool = False) -> InlineKeyboardMarkup:
-    """prefix: 'catuser' (foydalanuvchi ko'rishi), 'catadmvideo' (video qo'shish/boshqarish uchun tanlash),
-    'catadmmanage' (kategoriyani o'chirish uchun)"""
-    kb = InlineKeyboardBuilder()
-    for cat in categories:
-        kb.button(text=cat["name"], callback_data=f"{prefix}:{cat['id']}")
-    if show_add:
-        kb.button(text="➕ Yangi kategoriya", callback_data="adm_add_category")
-    kb.adjust(1)
-    if prefix != "catuser":
-        kb.row(InlineKeyboardButton(text="⬅️ Orqaga", callback_data="adm_menu"))
-    return kb.as_markup()
+def back_kb(target: str = "menu:main") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="⬅️ Bosh menyu", callback_data=target))
+    return builder.as_markup()
 
 
-def category_manage_actions_kb(category_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🗑 Kategoriyani o'chirish", callback_data=f"adm_delcat:{category_id}")
-    kb.button(text="⬅️ Orqaga", callback_data="adm_manage_categories")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
-def confirm_delete_category_kb(category_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Ha, o'chirish", callback_data=f"adm_delcat_yes:{category_id}")
-    kb.button(text="❌ Yo'q", callback_data="adm_manage_categories")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
-# ---------- Videolar ----------
-
-def videos_list_kb(videos, prefix: str) -> InlineKeyboardMarkup:
-    """prefix: 'vidsee' (foydalanuvchi ko'rishi) yoki 'vidadm' (admin boshqarishi)"""
-    kb = InlineKeyboardBuilder()
-    for v in videos:
-        kb.button(text=v["title"], callback_data=f"{prefix}:{v['id']}")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
-def video_actions_kb(video_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✏️ Nomini o'zgartirish", callback_data=f"adm_edittitle:{video_id}")
-    kb.button(text="📝 Tavsifini o'zgartirish", callback_data=f"adm_editdesc:{video_id}")
-    kb.button(text="🎞 Videoni almashtirish", callback_data=f"adm_editfile:{video_id}")
-    kb.button(text="🗑 O'chirish", callback_data=f"adm_delvideo:{video_id}")
-    kb.button(text="⬅️ Orqaga", callback_data="adm_manage_videos")
-    kb.adjust(1)
-    return kb.as_markup()
-
-
-def confirm_delete_video_kb(video_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Ha, o'chirish", callback_data=f"adm_delvideo_yes:{video_id}")
-    kb.button(text="❌ Yo'q", callback_data=f"vidadm:{video_id}")
-    kb.adjust(1)
-    return kb.as_markup()
+def list_nav_kb(prefix: str, index: int, total: int) -> InlineKeyboardMarkup:
+    """Ro'yxat elementlari (spektakl, aktyor, galereya, sayohat, yangilik)
+    orasida oldinga/orqaga o'tish tugmalarini yaratadi."""
+    builder = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    if index > 0:
+        row.append(
+            InlineKeyboardButton(text="⬅️", callback_data=f"{prefix}:{index - 1}")
+        )
+    row.append(InlineKeyboardButton(text=f"{index + 1}/{total}", callback_data="noop"))
+    if index < total - 1:
+        row.append(
+            InlineKeyboardButton(text="➡️", callback_data=f"{prefix}:{index + 1}")
+        )
+    builder.row(*row)
+    builder.row(InlineKeyboardButton(text="⬅️ Bosh menyu", callback_data="menu:main"))
+    return builder.as_markup()

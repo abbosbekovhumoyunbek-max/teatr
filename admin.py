@@ -1,296 +1,373 @@
-from aiogram import Router, F
+"""
+Admin panel.
+
+Faqat config.py dagi ADMIN_IDS ro'yxatida turgan Telegram foydalanuvchilar
+uchun ishlaydi. /admin buyrug'i bilan ochiladi.
+
+Imkoniyatlar:
+  - Yangi spektakl qo'shish
+  - Yangi yangilik/e'lon qo'shish
+  - Barcha foydalanuvchilarga xabar yuborish (broadcast)
+  - Statistika ko'rish (foydalanuvchilar soni va h.k.)
+"""
+
+import datetime
+import logging
+
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-import database as db
-import keyboards as kb
+import database
+import utils
 from config import ADMIN_IDS
-from states import AddCategory, AddVideo, EditVideo
 
+logger = logging.getLogger(__name__)
 router = Router()
-router.message.filter(F.from_user.id.in_(ADMIN_IDS))
-router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
 
 
-# ---------- Asosiy menyu ----------
+# ============================== YORDAMCHI FUNKSIYALAR ==============================
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def admin_menu_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="➕ Yangi spektakl qo'shish", callback_data="admin:add_spectacle")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🖼 Galereyaga rasm/video qo'shish", callback_data="admin:add_gallery")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📢 Yangilik qo'shish", callback_data="admin:add_news")
+    )
+    builder.row(
+        InlineKeyboardButton(text="✉️ Barchaga xabar yuborish", callback_data="admin:broadcast")
+    )
+    builder.row(InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats"))
+    return builder.as_markup()
+
+
+def back_to_admin_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="⬅️ Admin menyu", callback_data="admin:menu"))
+    return builder.as_markup()
+
+
+# ============================== FSM HOLATLARI ==============================
+
+class AddSpectacle(StatesGroup):
+    title = State()
+    genre = State()
+    duration = State()
+    date = State()
+    time = State()
+    description = State()
+    photo = State()
+
+
+class AddGallery(StatesGroup):
+    media = State()
+    caption = State()
+
+
+class AddNews(StatesGroup):
+    title = State()
+    text = State()
+
+
+class Broadcast(StatesGroup):
+    text = State()
+    confirm = State()
+
+
+# ============================== ADMIN MENYU ==============================
 
 @router.message(Command("admin"))
-async def cmd_admin(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🔧 Admin panel", reply_markup=kb.admin_menu_kb())
-
-
-@router.callback_query(F.data == "adm_menu")
-async def admin_menu(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.edit_text("🔧 Admin panel", reply_markup=kb.admin_menu_kb())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "adm_cancel")
-async def admin_cancel(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.edit_text("Bekor qilindi.\n\n🔧 Admin panel", reply_markup=kb.admin_menu_kb())
-    await callback.answer()
-
-
-# ---------- Kategoriyalarni boshqarish ----------
-
-@router.callback_query(F.data == "adm_manage_categories")
-async def manage_categories(callback: CallbackQuery):
-    categories = db.get_categories()
-    await callback.message.edit_text(
-        "📁 Kategoriyalar. Ko'rish/o'chirish uchun tanlang, yoki yangi qo'shing:",
-        reply_markup=kb.categories_kb(categories, prefix="catadmmanage", show_add=True),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "adm_add_category")
-async def add_category_start(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AddCategory.waiting_name)
-    await callback.message.edit_text(
-        "Yangi kategoriya nomini yuboring:", reply_markup=kb.cancel_kb()
-    )
-    await callback.answer()
-
-
-@router.message(AddCategory.waiting_name)
-async def add_category_finish(message: Message, state: FSMContext):
-    db.add_category(message.text.strip())
-    await state.clear()
-    await message.answer(f"✅ Kategoriya qo'shildi: {message.text.strip()}", reply_markup=kb.back_to_admin_kb())
-
-
-@router.callback_query(F.data.startswith("catadmmanage:"))
-async def category_manage_actions(callback: CallbackQuery):
-    category_id = int(callback.data.split(":")[1])
-    category = db.get_category(category_id)
-    if not category:
-        await callback.answer("Kategoriya topilmadi.", show_alert=True)
+async def cmd_admin(message: Message, state: FSMContext) -> None:
+    if not is_admin(message.from_user.id):
+        # Oddiy foydalanuvchiga bu buyruq umuman mavjud emasdek ko'rinadi
         return
-    videos_count = len(db.get_videos_by_category(category_id))
-    await callback.message.edit_text(
-        f"📁 {category['name']}\nIchida {videos_count} ta video bor.",
-        reply_markup=kb.category_manage_actions_kb(category_id),
-    )
-    await callback.answer()
+    await state.clear()
+    await message.answer("🔐 <b>Admin panel</b>\n\nNima qilmoqchisiz?", reply_markup=admin_menu_kb())
 
 
-@router.callback_query(F.data.startswith("adm_delcat:"))
-async def delete_category_confirm(callback: CallbackQuery):
-    category_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "⚠️ Bu kategoriya ichidagi barcha videolar ham o'chib ketadi. Rostdan o'chirilsinmi?",
-        reply_markup=kb.confirm_delete_category_kb(category_id),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("adm_delcat_yes:"))
-async def delete_category_finish(callback: CallbackQuery):
-    category_id = int(callback.data.split(":")[1])
-    db.delete_category(category_id)
-    await callback.answer("O'chirildi.", show_alert=True)
-    categories = db.get_categories()
-    await callback.message.edit_text(
-        "📁 Kategoriyalar:",
-        reply_markup=kb.categories_kb(categories, prefix="catadmmanage", show_add=True),
-    )
-
-
-# ---------- Video qo'shish ----------
-
-@router.callback_query(F.data == "adm_add_video")
-async def add_video_choose_category(callback: CallbackQuery, state: FSMContext):
-    categories = db.get_categories()
-    if not categories:
-        await callback.answer("Avval kamida bitta kategoriya yarating.", show_alert=True)
+@router.callback_query(F.data == "admin:menu")
+async def cb_admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
         return
-    await state.set_state(AddVideo.choosing_category)
-    await callback.message.edit_text(
-        "Video qaysi kategoriyaga tegishli?",
-        reply_markup=kb.categories_kb(categories, prefix="catadmvideo"),
+    await state.clear()
+    await utils.safe_edit(
+        callback.message, "🔐 <b>Admin panel</b>\n\nNima qilmoqchisiz?", admin_menu_kb()
     )
     await callback.answer()
 
 
-@router.callback_query(AddVideo.choosing_category, F.data.startswith("catadmvideo:"))
-async def add_video_choose_category_done(callback: CallbackQuery, state: FSMContext):
-    category_id = int(callback.data.split(":")[1])
-    await state.update_data(category_id=category_id)
-    await state.set_state(AddVideo.waiting_video)
-    await callback.message.edit_text(
-        "Endi video faylni shu yerga yuboring:", reply_markup=kb.cancel_kb()
+# ============================== STATISTIKA ==============================
+
+@router.callback_query(F.data == "admin:stats")
+async def cb_stats(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    users = await database.get_users()
+    spectacles = await database.get_spectacles()
+    news = await database.get_news()
+    text = (
+        "📊 <b>Statistika</b>\n\n"
+        f"👥 Botdan foydalanganlar: <b>{len(users)}</b> kishi\n"
+        f"🎭 Spektakllar soni: {len(spectacles)}\n"
+        f"🎨 Aktyorlar soni: {len(utils.get_actors())}\n"
+        f"📢 Yangiliklar soni: {len(news)}\n"
+        f"🧳 Sayohatlar soni: {len(utils.get_trips())}"
     )
+    if not database.MONGODB_URI:
+        text += "\n\n⚠️ MONGODB_URI sozlanmagan — yangi qo'shilgan ma'lumotlar saqlanmaydi!"
+    await utils.safe_edit(callback.message, text, back_to_admin_kb())
     await callback.answer()
 
 
-@router.message(AddVideo.waiting_video, F.video)
-async def add_video_receive_file(message: Message, state: FSMContext):
-    await state.update_data(file_id=message.video.file_id)
-    await state.set_state(AddVideo.waiting_title)
-    await message.answer("Video nomini (sarlavhasini) yuboring:", reply_markup=kb.cancel_kb())
+# ============================== YANGI SPEKTAKL QO'SHISH ==============================
+
+@router.callback_query(F.data == "admin:add_spectacle")
+async def cb_add_spectacle_start(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    await state.set_state(AddSpectacle.title)
+    await utils.safe_edit(callback.message, "🎭 Spektakl nomini yozing:")
+    await callback.answer()
 
 
-@router.message(AddVideo.waiting_video)
-async def add_video_wrong_type(message: Message):
-    await message.answer("Iltimos, video fayl yuboring (rasm yoki matn emas).")
+@router.message(AddSpectacle.title)
+async def add_spectacle_title(message: Message, state: FSMContext) -> None:
+    await state.update_data(title=message.text)
+    await state.set_state(AddSpectacle.genre)
+    await message.answer("🎬 Janrini yozing (masalan: Drama, Komediya):")
 
 
-@router.message(AddVideo.waiting_title)
-async def add_video_receive_title(message: Message, state: FSMContext):
-    await state.update_data(title=message.text.strip())
-    await state.set_state(AddVideo.waiting_description)
+@router.message(AddSpectacle.genre)
+async def add_spectacle_genre(message: Message, state: FSMContext) -> None:
+    await state.update_data(genre=message.text)
+    await state.set_state(AddSpectacle.duration)
+    await message.answer("⏱ Davomiyligini yozing (masalan: 2 soat):")
+
+
+@router.message(AddSpectacle.duration)
+async def add_spectacle_duration(message: Message, state: FSMContext) -> None:
+    await state.update_data(duration=message.text)
+    await state.set_state(AddSpectacle.date)
+    await message.answer("📅 Sanasini yozing (masalan: 2026-11-01):")
+
+
+@router.message(AddSpectacle.date)
+async def add_spectacle_date(message: Message, state: FSMContext) -> None:
+    await state.update_data(date=message.text)
+    await state.set_state(AddSpectacle.time)
+    await message.answer("🕐 Vaqtini yozing (masalan: 18:00):")
+
+
+@router.message(AddSpectacle.time)
+async def add_spectacle_time(message: Message, state: FSMContext) -> None:
+    await state.update_data(time=message.text)
+    await state.set_state(AddSpectacle.description)
+    await message.answer("📝 Qisqa tavsifini yozing:")
+
+
+@router.message(AddSpectacle.description)
+async def add_spectacle_description(message: Message, state: FSMContext) -> None:
+    await state.update_data(description=message.text)
+    await state.set_state(AddSpectacle.photo)
     await message.answer(
-        "Video uchun tavsif yuboring (yoki o'tkazib yuborish uchun /skip yozing):",
-        reply_markup=kb.cancel_kb(),
+        "🖼 Endi shu spektakl uchun rasm yuboring (talabalar shu rasmni ko'radi).\n"
+        "Agar hozircha rasm bo'lmasa, \"yo'q\" deb yozing."
     )
 
 
-@router.message(AddVideo.waiting_description, Command("skip"))
-async def add_video_skip_description(message: Message, state: FSMContext):
-    await _finish_add_video(message, state, description="")
+@router.message(AddSpectacle.photo, F.photo)
+async def add_spectacle_photo(message: Message, state: FSMContext) -> None:
+    photo_file_id = message.photo[-1].file_id
+    await _finish_add_spectacle(message, state, photo_file_id)
 
 
-@router.message(AddVideo.waiting_description)
-async def add_video_receive_description(message: Message, state: FSMContext):
-    await _finish_add_video(message, state, description=message.text.strip())
+@router.message(AddSpectacle.photo)
+async def add_spectacle_photo_skip(message: Message, state: FSMContext) -> None:
+    # Foydalanuvchi rasm o'rniga matn yozsa (masalan "yo'q"), rasmsiz davom etamiz
+    await _finish_add_spectacle(message, state, None)
 
 
-async def _finish_add_video(message: Message, state: FSMContext, description: str):
+async def _finish_add_spectacle(
+    message: Message, state: FSMContext, photo_file_id: str | None
+) -> None:
     data = await state.get_data()
-    db.add_video(
-        category_id=data["category_id"],
-        file_id=data["file_id"],
-        title=data["title"],
-        description=description,
-    )
     await state.clear()
-    await message.answer(f"✅ Video qo'shildi: {data['title']}", reply_markup=kb.back_to_admin_kb())
+
+    await database.add_spectacle(
+        {
+            "title": data["title"],
+            "genre": data["genre"],
+            "duration": data["duration"],
+            "date": data["date"],
+            "time": data["time"],
+            "description": data["description"],
+            "photo_file_id": photo_file_id,
+        }
+    )
+
+    confirmation = f"✅ \"{data['title']}\" spektakli muvaffaqiyatli qo'shildi!"
+    if photo_file_id:
+        confirmation += " (rasm bilan birga)"
+    await message.answer(confirmation, reply_markup=back_to_admin_kb())
 
 
-# ---------- Videolarni boshqarish (tahrirlash/o'chirish) ----------
+# ============================== GALEREYAGA RASM/VIDEO QO'SHISH ==============================
 
-@router.callback_query(F.data == "adm_manage_videos")
-async def manage_videos_choose_category(callback: CallbackQuery):
-    categories = db.get_categories()
-    if not categories:
-        await callback.answer("Hech qanday kategoriya yo'q.", show_alert=True)
+@router.callback_query(F.data == "admin:add_gallery")
+async def cb_add_gallery_start(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
         return
-    await callback.message.edit_text(
-        "Qaysi kategoriyadagi videolarni boshqaramiz?",
-        reply_markup=kb.categories_kb(categories, prefix="catadmmvid"),
+    await state.set_state(AddGallery.media)
+    await utils.safe_edit(
+        callback.message,
+        "🖼 Galereyaga qo'shmoqchi bo'lgan rasm yoki videoni shu yerga yuboring:",
     )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("catadmmvid:"))
-async def manage_videos_list(callback: CallbackQuery):
-    category_id = int(callback.data.split(":")[1])
-    videos = db.get_videos_by_category(category_id)
-    if not videos:
-        await callback.answer("Bu kategoriyada video yo'q.", show_alert=True)
+@router.message(AddGallery.media, F.photo)
+async def add_gallery_photo(message: Message, state: FSMContext) -> None:
+    await state.update_data(file_id=message.photo[-1].file_id, media_type="photo")
+    await state.set_state(AddGallery.caption)
+    await message.answer("📝 Endi shu rasm uchun qisqa izoh (caption) yozing:")
+
+
+@router.message(AddGallery.media, F.video)
+async def add_gallery_video(message: Message, state: FSMContext) -> None:
+    await state.update_data(file_id=message.video.file_id, media_type="video")
+    await state.set_state(AddGallery.caption)
+    await message.answer("📝 Endi shu video uchun qisqa izoh (caption) yozing:")
+
+
+@router.message(AddGallery.media)
+async def add_gallery_invalid(message: Message) -> None:
+    await message.answer("⚠️ Iltimos, matn emas — rasm yoki video yuboring.")
+
+
+@router.message(AddGallery.caption)
+async def add_gallery_caption(message: Message, state: FSMContext) -> None:
+    data = await state.update_data(caption=message.text)
+    await state.clear()
+
+    await database.add_gallery_item(
+        {
+            "caption": data["caption"],
+            "file_id": data["file_id"],
+            "type": data["media_type"],
+        }
+    )
+
+    await message.answer("✅ Galereyaga muvaffaqiyatli qo'shildi!", reply_markup=back_to_admin_kb())
+
+
+# ============================== YANGI YANGILIK QO'SHISH ==============================
+
+@router.callback_query(F.data == "admin:add_news")
+async def cb_add_news_start(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
         return
-    await callback.message.edit_text(
-        "Tahrirlash/o'chirish uchun videoni tanlang:",
-        reply_markup=kb.videos_list_kb(videos, prefix="vidadm"),
-    )
+    await state.set_state(AddNews.title)
+    await utils.safe_edit(callback.message, "📢 Yangilik sarlavhasini yozing (masalan: '🔥 Yangi mavsum'):")
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("vidadm:"))
-async def video_actions(callback: CallbackQuery):
-    video_id = int(callback.data.split(":")[1])
-    video = db.get_video(video_id)
-    if not video:
-        await callback.answer("Video topilmadi.", show_alert=True)
+@router.message(AddNews.title)
+async def add_news_title(message: Message, state: FSMContext) -> None:
+    await state.update_data(title=message.text)
+    await state.set_state(AddNews.text)
+    await message.answer("📝 Yangilik matnini yozing:")
+
+
+@router.message(AddNews.text)
+async def add_news_text(message: Message, state: FSMContext) -> None:
+    data = await state.update_data(text=message.text)
+    await state.clear()
+
+    await database.add_news_item(
+        {
+            "title": data["title"],
+            "text": data["text"],
+            "date": datetime.date.today().isoformat(),
+            "image_file_id": None,
+        }
+    )
+
+    await message.answer("✅ Yangilik muvaffaqiyatli qo'shildi!", reply_markup=back_to_admin_kb())
+
+
+# ============================== BARCHAGA XABAR YUBORISH ==============================
+
+@router.callback_query(F.data == "admin:broadcast")
+async def cb_broadcast_start(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
         return
-    text = f"🎬 {video['title']}"
-    if video["description"]:
-        text += f"\n{video['description']}"
-    await callback.message.edit_text(text, reply_markup=kb.video_actions_kb(video_id))
-    await callback.answer()
-
-
-# --- Nomini o'zgartirish ---
-
-@router.callback_query(F.data.startswith("adm_edittitle:"))
-async def edit_title_start(callback: CallbackQuery, state: FSMContext):
-    video_id = int(callback.data.split(":")[1])
-    await state.update_data(video_id=video_id)
-    await state.set_state(EditVideo.waiting_new_title)
-    await callback.message.edit_text("Yangi nomni yuboring:", reply_markup=kb.cancel_kb())
-    await callback.answer()
-
-
-@router.message(EditVideo.waiting_new_title)
-async def edit_title_finish(message: Message, state: FSMContext):
-    data = await state.get_data()
-    db.update_video_title(data["video_id"], message.text.strip())
-    await state.clear()
-    await message.answer("✅ Nomi yangilandi.", reply_markup=kb.back_to_admin_kb())
-
-
-# --- Tavsifini o'zgartirish ---
-
-@router.callback_query(F.data.startswith("adm_editdesc:"))
-async def edit_desc_start(callback: CallbackQuery, state: FSMContext):
-    video_id = int(callback.data.split(":")[1])
-    await state.update_data(video_id=video_id)
-    await state.set_state(EditVideo.waiting_new_description)
-    await callback.message.edit_text("Yangi tavsifni yuboring:", reply_markup=kb.cancel_kb())
-    await callback.answer()
-
-
-@router.message(EditVideo.waiting_new_description)
-async def edit_desc_finish(message: Message, state: FSMContext):
-    data = await state.get_data()
-    db.update_video_description(data["video_id"], message.text.strip())
-    await state.clear()
-    await message.answer("✅ Tavsif yangilandi.", reply_markup=kb.back_to_admin_kb())
-
-
-# --- Videoni almashtirish ---
-
-@router.callback_query(F.data.startswith("adm_editfile:"))
-async def edit_file_start(callback: CallbackQuery, state: FSMContext):
-    video_id = int(callback.data.split(":")[1])
-    await state.update_data(video_id=video_id)
-    await state.set_state(EditVideo.waiting_new_file)
-    await callback.message.edit_text("Yangi video faylni yuboring:", reply_markup=kb.cancel_kb())
-    await callback.answer()
-
-
-@router.message(EditVideo.waiting_new_file, F.video)
-async def edit_file_finish(message: Message, state: FSMContext):
-    data = await state.get_data()
-    db.update_video_file(data["video_id"], message.video.file_id)
-    await state.clear()
-    await message.answer("✅ Video fayl yangilandi.", reply_markup=kb.back_to_admin_kb())
-
-
-@router.message(EditVideo.waiting_new_file)
-async def edit_file_wrong_type(message: Message):
-    await message.answer("Iltimos, video fayl yuboring.")
-
-
-# --- O'chirish ---
-
-@router.callback_query(F.data.startswith("adm_delvideo:"))
-async def delete_video_confirm(callback: CallbackQuery):
-    video_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "⚠️ Rostdan bu videoni o'chirmoqchimisiz?",
-        reply_markup=kb.confirm_delete_video_kb(video_id),
+    await state.set_state(Broadcast.text)
+    await utils.safe_edit(
+        callback.message, "✉️ Barcha foydalanuvchilarga yuboriladigan xabar matnini yozing:"
     )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("adm_delvideo_yes:"))
-async def delete_video_finish(callback: CallbackQuery):
-    video_id = int(callback.data.split(":")[1])
-    db.delete_video(video_id)
-    await callback.answer("O'chirildi.", show_alert=True)
-    await callback.message.edit_text("🔧 Admin panel", reply_markup=kb.admin_menu_kb())
+@router.message(Broadcast.text)
+async def broadcast_text(message: Message, state: FSMContext) -> None:
+    await state.update_data(text=message.text)
+    await state.set_state(Broadcast.confirm)
+    users_count = len(await database.get_users())
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Ha, yuborish", callback_data="admin:broadcast_confirm"),
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin:menu"),
+    )
+    await message.answer(
+        f"Quyidagi xabar <b>{users_count}</b> foydalanuvchiga yuboriladi:\n\n"
+        f"—————————\n{message.text}\n—————————\n\nTasdiqlaysizmi?",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "admin:broadcast_confirm")
+async def cb_broadcast_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+    data = await state.get_data()
+    text = data.get("text", "")
+    await state.clear()
+
+    users = await database.get_users()
+    sent, failed = 0, 0
+    await utils.safe_edit(callback.message, "⏳ Yuborilmoqda, biroz kuting...")
+
+    for user_id in users:
+        try:
+            await callback.bot.send_message(user_id, f"📢 {text}")
+            sent += 1
+        except Exception as e:
+            logger.warning("Xabar yuborilmadi (user_id=%s): %s", user_id, e)
+            failed += 1
+
+    await utils.safe_edit(
+        callback.message,
+        f"✅ Xabar yuborish yakunlandi!\n\n✔️ Muvaffaqiyatli: {sent}\n❌ Yetkazilmadi: {failed}",
+        back_to_admin_kb(),
+    )
+    await callback.answer()

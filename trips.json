@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "title": "Sahna ortiga ekskursiya",
+    "date": "2026-10-10",
+    "price": "Bepul (a'zolar uchun)",
+    "seats": "20 kishi"
+  },
+  {
+    "id": 2,
+    "title": "Samarqand teatrlariga safar",
+    "date": "2026-11-15",
+    "price": "150 000 so'm",
+    "seats": "30 kishi"
+  }
+]

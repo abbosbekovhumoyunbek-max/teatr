@@ -1,0 +1,21 @@
+[
+  {
+    "name": "Standart a'zolik",
+    "price": "50 000 so'm / oy",
+    "benefits": [
+      "Har bir spektaklga 20% chegirma",
+      "Yangiliklardan birinchi bo'lib xabardor bo'lish"
+    ],
+    "how_to_join": "Ro'yxatdan o'tish uchun @teatr_admin ga yozing"
+  },
+  {
+    "name": "Talaba a'zoligi",
+    "price": "25 000 so'm / oy",
+    "benefits": [
+      "Har bir spektaklga 30% chegirma",
+      "Sahna ortiga ekskursiyalarda ustuvorlik",
+      "Talaba guruhlari uchun maxsus tadbirlar"
+    ],
+    "how_to_join": "Talaba guvohnomangiz rasmini @teatr_admin ga yuboring"
+  }
+]

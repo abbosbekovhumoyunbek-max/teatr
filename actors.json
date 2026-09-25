@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "name": "Dilnoza Karimova",
+    "bio": "10 yildan ortiq sahna tajribasiga ega, drama janrida ixtisoslashgan aktrisa.",
+    "roles": ["Dezdemona (Otello)", "Julietta (Romeo va Julietta)"],
+    "photo_file_id": null
+  },
+  {
+    "id": 2,
+    "name": "Sardor Yusupov",
+    "bio": "Komediya va drama janrlarida faoliyat yurituvchi, yosh va iste'dodli aktyor.",
+    "roles": ["Otello", "Hamlet"],
+    "photo_file_id": null
+  }
+]

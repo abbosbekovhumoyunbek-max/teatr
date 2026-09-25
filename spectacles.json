@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "title": "Otello",
+    "genre": "Drama",
+    "duration": "2 soat 30 daqiqa",
+    "date": "2026-10-02",
+    "time": "18:00",
+    "description": "Shekspirning mashhur fojiasi asosida sahnalashtirilgan spektakl.",
+    "photo_file_id": null
+  },
+  {
+    "id": 2,
+    "title": "Kulgili kunlar",
+    "genre": "Komediya",
+    "duration": "1 soat 45 daqiqa",
+    "date": "2026-10-03",
+    "time": "19:00",
+    "description": "Talabalar hayotidan olingan hazil-mutoyibaga boy spektakl.",
+    "photo_file_id": null
+  },
+  {
+    "id": 3,
+    "title": "Yulduzlar ostida",
+    "genre": "Musiqiy drama",
+    "duration": "2 soat",
+    "date": "2026-10-05",
+    "time": "17:30",
+    "description": "Sevgi va sadoqat haqida ta'sirchan musiqiy spektakl.",
+    "photo_file_id": null
+  }
+]
